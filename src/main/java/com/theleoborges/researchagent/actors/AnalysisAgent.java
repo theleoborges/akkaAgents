@@ -144,7 +144,8 @@ public class AnalysisAgent extends AbstractBehavior<AnalysisAgent.Command> {
             Your analytical document should be in markdown format, at least 5,000 words and include visual frameworks (described in text)
             that help conceptualize the information. Maintain a balanced, objective perspective while
             providing insightful interpretation of the data.
-            Include all links referenced in the context in markdown format.
+            
+            IMPORTANT: Include all links referenced in the context in markdown format. Use inline markdown links where appropriate.
             """.formatted(query, modelContext);
         String systemPrompt = """
             You are an expert analyst with extensive domain knowledge. You excel at synthesizing complex information

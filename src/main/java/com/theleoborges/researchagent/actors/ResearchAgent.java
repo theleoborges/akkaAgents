@@ -100,11 +100,14 @@ public class ResearchAgent extends AbstractBehavior<ResearchAgent.Command> {
     private Models.ResearchResult researchTopic(String query, String modelContext, String model, Logger logger) {
         
         String userPrompt = """
-                # CONTEXT
+                **CONTEXT**:
                 %s
                 
-                # TASK
-                Conduct extensive research on the following topic: "%s". You should leverage the context to ensure
+                
+                
+                **TASK**:
+                Write a 4,000 word extensive research on the following topic: "%s".
+                You must use the context to ensure relevance in the output.
                 
                 Your research must be comprehensive and in-depth. Search for and compile information from:
                 - Recent academic publications and peer-reviewed journals
@@ -120,8 +123,8 @@ public class ResearchAgent extends AbstractBehavior<ResearchAgent.Command> {
                 3. Note contradictory views or debates within the field
                 4. Identify emerging trends and future predictions
                 
-                Organize your research into detailed sections covering:
-                - Current state and major developments (with emphasis on 2025)
+                Organize your research into detailed sections, covering:
+                - Current state and major developments
                 - Technical aspects and implementation details
                 - Real-world applications and case studies
                 - Challenges and limitations
@@ -130,9 +133,9 @@ public class ResearchAgent extends AbstractBehavior<ResearchAgent.Command> {
                 
                 IMPORTANT: When searching for information, use the context provided for more up to date information
                 and to ensure relevant and accuracy. Remember to include links from the context to all references in markdown format.
-                
-                Your final research document should be extensive and in markdown format, containing 5,000+ words of raw information,
-                properly organized with headings and subheadings, and including full citations and links for all sources from the context.
+
+                Your final research document should be extensive and in markdown format properly organized with headings
+                and subheadings, and including full citations and links for all sources from the context.
                 This will serve as the foundation for an authoritative, in-depth report.
                 """.formatted(modelContext, query);
         String systemPrompt = """

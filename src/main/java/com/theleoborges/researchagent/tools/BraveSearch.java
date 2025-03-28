@@ -4,6 +4,9 @@ import com.theleoborges.researchagent.config.AppConfig;
 import com.theleoborges.researchagent.models.Models;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.ConsumptionProbe;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -16,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import org.jsoup.Jsoup;
@@ -24,20 +29,57 @@ import org.jsoup.nodes.Document;
 
 public class BraveSearch {
 
-    private final OkHttpClient httpClient;
-    private final ObjectMapper objectMapper;
 
-    public BraveSearch(Duration timeout, int maxThreads) {
-        super();
-        this.httpClient = new OkHttpClient.Builder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .readTimeout(timeout)
-                .build();
-        this.objectMapper = new ObjectMapper();
+
+    static class Bucket4jRateLimiter {
+        private final Bucket bucket;
+
+        public Bucket4jRateLimiter() {
+            // Create a bandwidth that allows one token per second
+            Bandwidth bandwidth = Bandwidth.simple(1, Duration.ofSeconds(1));
+
+            // Create a bucket with the specified bandwidth
+            this.bucket = Bucket.builder()
+                    .addLimit(bandwidth)
+                    .build();
+        }
+
+        public boolean isRequestAllowed() {
+            // Try to consume one token from the bucket
+            return bucket.tryConsume(1);
+        }
 
     }
 
-    public BraveSearch(Duration timeout) {
+
+
+    private final OkHttpClient httpClient;
+    private final ObjectMapper objectMapper;
+    private final Bucket4jRateLimiter rateLimiter;
+
+    private static BraveSearch instance;
+
+    public static BraveSearch getInstance(Duration timeout) {
+        synchronized (BraveSearch.class) {
+            if (instance == null) {
+                instance = new BraveSearch(timeout);
+            }
+            return instance;
+        }
+    }
+
+    private BraveSearch(Duration timeout, int maxThreads) {
+        super();
+        this.httpClient = new OkHttpClient.Builder()
+                .connectTimeout(Duration.ofSeconds(60))
+                .readTimeout(timeout)
+                .build();
+        this.objectMapper = new ObjectMapper();
+        this.rateLimiter = new Bucket4jRateLimiter();
+
+    }
+
+    private BraveSearch(Duration timeout) {
         this(timeout, Runtime.getRuntime().availableProcessors());
     }
 
@@ -61,6 +103,25 @@ public class BraveSearch {
                 .addHeader("X-Subscription-Token", AppConfig.getInstance().getBraveApiKey())
                 .build();
 
+        while (!rateLimiter.isRequestAllowed()) {
+            System.err.println("Rate limit reached. Waiting...");
+            try {
+                TimeUnit.SECONDS.sleep(2);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+//            ConsumptionProbe probe = rateLimiter.bucket.tryConsumeAndReturnRemaining(1);
+//            long nanosToWaitForRefill = probe.getNanosToWaitForRefill();
+//            System.err.println("Rate limit exceeded. Waiting " + nanosToWaitForRefill + " nanoseconds for refill.");
+//            try {
+//                TimeUnit.SECONDS.sleep(2);
+//                boolean allowed = rateLimiter.isRequestAllowed(); // consume token after sleep
+//                System.err.println("Rate limit exceeded. Allowed after wait: " + allowed);
+//            } catch (InterruptedException e) {
+//                throw new RuntimeException(e);
+//            }
+        }
+
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Unexpected response code: " + response);
@@ -77,10 +138,11 @@ public class BraveSearch {
             for (JsonNode resultNode : resultsNode) {
                 String title = resultNode.path("title").asText();
                 String resultUrl = resultNode.path("url").asText();
+                String description = resultNode.path("description").asText();
 
                 // Create a future that will fetch the content of this URL
                 CompletableFuture<SingleResult> future = CompletableFuture.supplyAsync(
-                        () -> fetchContent(title, resultUrl)
+                        () -> fetchContent(title, description, resultUrl)
                 );
 
                 futures.add(future);
@@ -124,7 +186,7 @@ public class BraveSearch {
 
     record SingleResult(String title, String url, String content) {}
 
-    private SingleResult fetchContent(String title, String url) {
+    private SingleResult fetchContent(String title, String description, String url) {
         try {
             Request request = new Request.Builder()
                     .url(url)
@@ -135,7 +197,9 @@ public class BraveSearch {
                     return new SingleResult(title, url, "Failed to fetch content: " + response.code());
                 }
 
-
+                // filter out PDF files for now . Use the Brave short description instead.
+                if (response.body().contentType().toString().contains("pdf")) { return new SingleResult(title, url, description); }
+                ;
                 Document document = Jsoup.parse(response.body().string());
                 return new SingleResult(title, url, document.text());
             }

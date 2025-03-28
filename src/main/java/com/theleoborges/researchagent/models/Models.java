@@ -7,9 +7,18 @@ public class Models {
     public record SearchRequest(String query, int resultCount) {
     }
 
+    public record AggregateRequest(String query) {
+    }
+
     // Search result from Brave API
     public record SearchResults(
             String query,
+            String searchContext
+    ) {
+    }
+
+    public record AggregatedSearchResults(
+            java.util.Set<String> queries,
             String searchContext
     ) {
     }
@@ -41,5 +50,7 @@ public class Models {
             String query,
             String detailedReport
     ) {}
+
+    public record EmailResult(String recipient, String result){}
 
 }

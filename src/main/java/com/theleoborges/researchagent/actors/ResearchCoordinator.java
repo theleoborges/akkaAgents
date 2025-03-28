@@ -17,12 +17,17 @@ import java.util.List;
 public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Command> {
 
 
-
     // Command interface for the ResearchCoordinator
     public sealed interface Command {}
 
     // Command to start a new research process
     public record StartResearch(Models.SearchRequest request) implements Command {}
+
+    // Internal message when queries have been optimised
+    record QueryOptimiserCompleted(List<Models.SearchRequest> searchRequests) implements Command {}
+
+    // Internal message when queries have been optimised
+    record AggregatedResultsReceived(Models.AggregatedSearchResults results) implements Command {}
 
     // Internal message when search results are received
     record SearchCompleted(Models.SearchResults searchResults) implements Command {}
@@ -39,14 +44,19 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
     // Internal message when final report is ready
     record ReportCompleted(Models.FinalReport report) implements Command {}
 
+    public record SendEmailCompleted(String recipient) implements Command {}
+
     // State to track progress
     private Models.SearchRequest currentRequest;
 
+    private ActorRef<QueryOptimiserAgent.Command> queryOptimiserAgent;
+    private ActorRef<SearchResultsAggregatorAgent.Command> aggregatorAgent;
     private ActorRef<SearchAgent.Command> searchAgent;
     private ActorRef<ResearchAgent.Command> researchAgent;
     private ActorRef<AnalysisAgent.Command> analysisAgent;
     private ActorRef<WriterAgent.Command> writerAgent;
     private ActorRef<ReportAgent.Command> reportAgent;
+    private ActorRef<EmailAgent.Command> emailAgent;
 
     // Factory method to create the actor behavior
     public static Behavior<Command> create() {
@@ -67,6 +77,17 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
         List<Class<? extends AbstractBehavior<?>>> agents = Arrays.asList(SearchAgent.class, ResearchAgent.class);
 
         // Create the child agent actors with appropriate dispatchers
+        this.queryOptimiserAgent = context.spawn(
+                QueryOptimiserAgent.create(searchTimeout),
+                "query-optimiser-agent",
+                DispatcherSelector.fromConfig("akka.actor.search-dispatcher")
+        );
+
+        this.aggregatorAgent = context.spawn(
+                SearchResultsAggregatorAgent.create(searchTimeout),
+                "search-aggregator-agent"
+        );
+
         this.searchAgent = context.spawn(
                 SearchAgent.create(searchTimeout),
                 "search-agent",
@@ -89,6 +110,10 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
                 ReportAgent.create(reportTimeout),
                 "report-agent");
 
+        this.emailAgent = context.spawn(
+                EmailAgent.create(reportTimeout),
+                "email-agent");
+
         context.getLog().info("Research Coordinator started with timeouts: search={}, analysis={}, report={}",
                 searchTimeout, analysisTimeout, reportTimeout);
     }
@@ -97,7 +122,8 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
     public Receive<Command> createReceive() {
         return newReceiveBuilder()
                 .onMessage(StartResearch.class, this::onStartResearch)
-                .onMessage(SearchCompleted.class, this::onSearchCompleted)
+                .onMessage(QueryOptimiserCompleted.class, this::onQueryOptimiserCompleted)
+                .onMessage(AggregatedResultsReceived.class, this::onAggregatedResultsReceived)
                 .onMessage(ResearchCompleted.class, this::onResearchCompleted)
                 .onMessage(AnalysisCompleted.class, this::onAnalysisCompleted)
                 .onMessage(WriteContentCompleted.class, this::onWriteContentCompleted)
@@ -105,15 +131,42 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
                 .build();
     }
 
+    // Entry point to the workflow
     private Behavior<Command> onStartResearch(StartResearch command) {
-        currentRequest = command.request();
+        this.currentRequest = command.request();
         getContext().getLog().info("Starting research for query: {}", currentRequest.query());
 
-        // Send command to the search agent
-        searchAgent.tell(new SearchAgent.PerformSearch(
+
+        queryOptimiserAgent.tell(new QueryOptimiserAgent.OptimiseQuery(
                 currentRequest,
                 getContext().getSelf().narrow()
         ));
+
+        return this;
+    }
+
+
+    private Behavior<Command> onQueryOptimiserCompleted(QueryOptimiserCompleted command) {
+        getContext().getLog().info("Starting optimiser for query: {}", currentRequest.query());
+
+        // Send command to the search agent
+        aggregatorAgent.tell(new SearchResultsAggregatorAgent.StartAggregation(
+                searchAgent,
+                command.searchRequests(),
+                getContext().getSelf().narrow()
+        ));
+
+        return this;
+    }
+
+    private Behavior<Command> onAggregatedResultsReceived(AggregatedResultsReceived command) {
+        getContext().getLog().info("Received aggregated results for query: {}", currentRequest.query());
+
+        researchAgent.tell(new ResearchAgent.ResearchTopic(
+                new Models.SearchResults(currentRequest.query(), command.results().searchContext()),
+                getContext().getSelf().narrow()
+        ));
+
 
         return this;
     }
@@ -123,7 +176,7 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
 
         writeToDisk("01-searchResults.md", command.searchResults.searchContext(), "Failed to save search results to file");
 
-        // Forward analysisReport to research agent
+        // Forward search results to research agent
         researchAgent.tell(new ResearchAgent.ResearchTopic(
                 command.searchResults(),
                 getContext().getSelf().narrow()
@@ -176,15 +229,24 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
         getContext().getLog().info("Research process completed!");
         writeToDisk("finalReport.md", command.report().detailedReport(), "Failed to save report to file");
         getContext().getLog().info("Final report created for query: {}", command.report().query());
+
+        // Send report via email
+        emailAgent.tell(new EmailAgent.SendReport(System.getenv("SENDGRID_RECIPIENT_EMAIL"),
+                command.report().query(),
+                command.report().detailedReport(),
+                getContext().getSelf().narrow()
+        ));
+
         return this;
     }
 
-    private void writeToDisk(String fileName, String content, String s) {
+    public static void writeToDisk(String fileName, String content, String s) {
         try {
             Files.writeString(Paths.get("results").toAbsolutePath().resolve(fileName), content);
         } catch (IOException e) {
-            getContext().getLog().error(s, e);
             throw new RuntimeException(e);
         }
     }
+
+
 }

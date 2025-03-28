@@ -144,10 +144,10 @@ public class ReportAgent extends AbstractBehavior<ReportAgent.Command> {
                 2. Enhance the conclusion to leave a lasting impression
                 3. Add clarifying elements where complex concepts are presented
                 4. Ensure the article maintains reader interest despite its length and depth
-                5. Ensure the article has appropriate citations and references with links from the provided context.
+                5. Ensure the article has appropriate citations and references with links from the provided context, in markdown format.
                 
                 Your final edit should result in a polished, authoritative piece of 5,000 words that stands as
-                a definitive resource on the topic. The article should be publication-ready and meet the standards
+                a definitive resource on the topic, in markdown format. The article should be publication-ready and meet the standards
                 of respected industry publications or academic journals.
                 """.formatted(writeContentResult.content());
 

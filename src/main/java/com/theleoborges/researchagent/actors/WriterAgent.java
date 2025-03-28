@@ -99,8 +99,8 @@ public class WriterAgent extends AbstractBehavior<WriterAgent.Command> {
                 # TASK
                 Create an authoritative, in-depth article based on the research and analysis provided in the context.
                 
-                Your article should be comprehensive, engaging, and professionally structured. Aim for approximately 5,000-8,000 words
-                of substantial content that thoroughly explores the topic and provides valuable insights to readers.
+                Your article should be comprehensive, engaging, and professionally structured. It should be written in markdown. 
+                Aim for approximately 5,000-8,000 words of substantial content that thoroughly explores the topic and provides valuable insights to readers.
                 
                 The article should include:
                 
