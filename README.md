@@ -1,4 +1,4 @@
-# akka Agents POC - A poor man's deep research
+# ShallowResearch - A poor man's deep research (this is a POC for learning purposes)
 
 ## Why akka (and actors)
 
