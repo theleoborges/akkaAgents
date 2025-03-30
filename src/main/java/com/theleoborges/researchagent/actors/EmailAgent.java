@@ -13,8 +13,16 @@ import com.sendgrid.helpers.mail.objects.Email;
 import com.sendgrid.helpers.mail.objects.Attachments;
 import com.theleoborges.researchagent.models.Models;
 import com.theleoborges.researchagent.tools.LLMService;
+import org.commonmark.parser.Parser;
+import org.commonmark.renderer.html.HtmlRenderer;
+import org.xhtmlrenderer.pdf.ITextRenderer;
+
 import org.slf4j.Logger;
 
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
@@ -110,13 +118,45 @@ public class EmailAgent extends AbstractBehavior<EmailAgent.Command> {
         return this;
     }
 
-    private Attachments createSendGridAttachment(String content) {
-        return new Attachments.Builder("finalReport.md",
-                Base64.getEncoder().encodeToString(content.getBytes()))
-                .withType("text/markdown")
-                .withContentId("finalReport")
-                .withDisposition("attachment")
-                .build();
+
+    private Path createPDF(String markdownString, Logger logger) {
+
+        // Convert Markdown to HTML
+        Parser parser = Parser.builder().build();
+        HtmlRenderer htmlRenderer = HtmlRenderer.builder().build();
+        String htmlString = "<html>" + htmlRenderer.render(parser.parse(markdownString)) + "</html>";
+
+        ITextRenderer pdfRenderer = new ITextRenderer();
+        pdfRenderer.setDocumentFromString(htmlString);
+        pdfRenderer.layout();
+
+        // Create output file and write PDF
+        Path path = Paths.get("results").toAbsolutePath().resolve("finalReport.pdf").toAbsolutePath();
+        try (OutputStream outputStream = new FileOutputStream(path.toString())) {
+            pdfRenderer.createPDF(outputStream);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        logger.info("PDF created successfully at: {}", path);
+
+        return path;
+    }
+
+    private Attachments createPDFAttachment(String markdownString, Logger logger) {
+        try {
+            byte[] bytes = Files.readAllBytes(createPDF(markdownString, logger));
+
+            return new Attachments.Builder("finalReport.pdf",
+                    Base64.getEncoder().encodeToString(bytes))
+                    .withType("text/pdf")
+                    .withContentId("finalReport")
+                    .withDisposition("attachment")
+                    .build();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     private Models.EmailResult sendReport(SendReport command, String model, Logger logger) {
@@ -129,7 +169,7 @@ public class EmailAgent extends AbstractBehavior<EmailAgent.Command> {
             Content content = new Content("text/plain", "Final report attached. Have fun!");
 
             Mail mail = new Mail(from, command.subject, to, content);
-            mail.addAttachments(createSendGridAttachment(command.body()));
+            mail.addAttachments(createPDFAttachment(command.body(), logger));
 
             Request request = new Request();
             request.setMethod(Method.POST);

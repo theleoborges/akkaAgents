@@ -12,6 +12,9 @@ application {
 
 repositories {
     mavenCentral()
+    maven {
+        url = uri("https://repository.aspose.com/repo/")
+    }
 }
 
 dependencies {
@@ -52,6 +55,12 @@ dependencies {
 
     // Rate limiting
     implementation("com.bucket4j:bucket4j-core:8.10.1")
+
+    // PDF Generation
+    implementation("org.xhtmlrenderer:flying-saucer-pdf:9.11.4")
+    implementation("com.github.librepdf:openpdf:2.0.3")
+    implementation("org.commonmark:commonmark:0.20.0")
+
 
     // Testing
     testImplementation("com.typesafe.akka:akka-actor-testkit-typed_2.13:2.9.0-M2")

@@ -80,7 +80,7 @@ public class QueryOptimiserAgent extends AbstractBehavior<QueryOptimiserAgent.Co
                 2. Create multiple search queries that approach the topic from different angles
                 3. Include specific technical terms, industry jargon, and authoritative sources where appropriate
                 4. Format queries for maximum search engine effectiveness (remove unnecessary words, focus on keywords)
-                5. Ensure queries will find recent, relevant information
+                5. Ensure queries will find recent, relevant information. The current year is 2025.
 
                 Output exactly 3 optimized search queries in JSON format like this:
                 {
