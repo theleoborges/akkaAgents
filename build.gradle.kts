@@ -27,6 +27,11 @@ dependencies {
     implementation("com.typesafe.akka:akka-stream_2.13:2.9.0-M2")
     implementation("com.typesafe.akka:akka-slf4j_2.13:2.9.0-M2")
 
+    // Akka HTTP
+    implementation("com.typesafe.akka:akka-http_3:10.6.0-M1")
+    implementation("com.typesafe.akka:akka-http-jackson_3:10.6.0-M1")
+    implementation("com.typesafe.akka:akka-serialization-jackson_2.13:2.9.0-M2")
+
     // JSON processing
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.0")
 

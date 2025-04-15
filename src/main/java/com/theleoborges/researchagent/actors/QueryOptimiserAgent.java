@@ -6,14 +6,18 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
+import akka.http.javadsl.model.sse.ServerSentEvent;
+import akka.stream.javadsl.SourceQueueWithComplete;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.theleoborges.researchagent.mcp.clients.BraveClient;
 import com.theleoborges.researchagent.models.Models;
 import com.theleoborges.researchagent.tools.LLMService;
+import org.slf4j.Logger;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public class QueryOptimiserAgent extends AbstractBehavior<QueryOptimiserAgent.Command> {
@@ -29,13 +33,14 @@ public class QueryOptimiserAgent extends AbstractBehavior<QueryOptimiserAgent.Co
     // Command to perform a search
     public record OptimiseQuery(
             Models.SearchRequest request,
+            Optional<akka.stream.javadsl.SourceQueueWithComplete<akka.http.javadsl.model.sse.ServerSentEvent>> serverSentEventSourceQueueWithComplete,
             ActorRef<ResearchCoordinator.Command> replyTo
     ) implements Command {}
 
     // Internal message for results received
     private record OptimisedQueriesReceived(
             List<Models.SearchRequest> searchRequests,
-            ActorRef<ResearchCoordinator.Command> replyTo
+            Optional<SourceQueueWithComplete<ServerSentEvent>> eventSource, ActorRef<ResearchCoordinator.Command> replyTo
     ) implements Command {}
 
     // Internal message for handling failures
@@ -70,7 +75,12 @@ public class QueryOptimiserAgent extends AbstractBehavior<QueryOptimiserAgent.Co
     }
 
     private Behavior<Command> onOptimiseQuery(OptimiseQuery command) {
-        getContext().getLog().info("Optimising query: {}", command.request().query());
+        Logger logger = getContext().getLog();
+        logger.info("Optimising query: {}", command.request().query());
+        Optional<SourceQueueWithComplete<ServerSentEvent>> eventSource = command.request().eventSource();
+        eventSource.ifPresent(ResearchCoordinator.eventEmitter("optimiser-agent",
+                "optimise-query", "Optimising query for: " + command.request().query()));
+
 
         String systemPrompt = """
                 You are a search query optimization expert. Your task is to transform natural language questions into highly effective search engine queries.
@@ -107,15 +117,20 @@ public class QueryOptimiserAgent extends AbstractBehavior<QueryOptimiserAgent.Co
                         ObjectMapper mapper = new ObjectMapper();
                         QueryWrapper wrapper = mapper.readValue(json, QueryWrapper.class);
 
-                        return wrapper.queries().stream().map(query -> new Models.SearchRequest(query, count)).toList();
+                        return wrapper.queries().stream().map(query -> {
+                            eventSource.ifPresent(ResearchCoordinator.eventEmitter("optimiser-agent",
+                                    "optimise-query", "New optimised query: " + query));
+
+                            return new Models.SearchRequest(query, count, Optional.empty());
+                        }).toList();
 
                     } catch (Exception e) {
-                        getContext().getLog().error("Query Optimiser failed: {}", e.getMessage());
+                        logger.error("Query Optimiser failed: {}", e.getMessage());
                         throw new RuntimeException("Query Optimiser failed", e);
                     }
                 })
                 .thenAccept(results -> {
-                    getContext().getSelf().tell(new OptimisedQueriesReceived(results, command.replyTo()));
+                    getContext().getSelf().tell(new OptimisedQueriesReceived(results, eventSource, command.replyTo()));
                 })
                 .exceptionally(ex -> {
                     getContext().getSelf().tell(new SearchFailed(userPrompt, ex.getMessage(), command.replyTo()));
@@ -128,8 +143,11 @@ public class QueryOptimiserAgent extends AbstractBehavior<QueryOptimiserAgent.Co
     private Behavior<Command> onOptimisedQueriesReceived(OptimisedQueriesReceived message) {
         getContext().getLog().info("Queries optimised successfully");
 
+        message.eventSource().ifPresent(ResearchCoordinator.eventEmitter("optimiser-agent",
+                        "optimise-query", "All queries optimised successfully"));
+
         // Forward optimised queries to coordinator
-        message.replyTo().tell(new ResearchCoordinator.QueryOptimiserCompleted(message.searchRequests()));
+        message.replyTo().tell(new ResearchCoordinator.QueryOptimiserCompleted(message.searchRequests(), message.eventSource()));
 
         return this;
     }

@@ -85,6 +85,15 @@ To specify your own topic, run the following:
     ./gradlew runSystem -Pargs="'topic to research'"
 ```
 
+### Web and SSE
+
+WIP
+
+For now: 
+```
+    $ curl -N -H "Content-Type: application/json" -X POST -d '{"topic":"my topic"}' http://127.0.0.1:8080/start
+```
+
 ## A note on the MCP server
 
 The MCP server implemented in this repo uses STDIO for in process communication. 

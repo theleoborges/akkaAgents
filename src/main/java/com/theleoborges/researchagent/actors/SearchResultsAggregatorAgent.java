@@ -6,11 +6,14 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
+import akka.http.javadsl.model.sse.ServerSentEvent;
+import akka.stream.javadsl.SourceQueueWithComplete;
 import com.theleoborges.researchagent.models.Models;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -21,6 +24,7 @@ public class SearchResultsAggregatorAgent extends AbstractBehavior<SearchResults
     public interface Command {}
 
     public record StartAggregation(ActorRef<SearchAgent.Command> searchAgent, List<Models.SearchRequest> searchRequests,
+                                   java.util.Optional<akka.stream.javadsl.SourceQueueWithComplete<akka.http.javadsl.model.sse.ServerSentEvent>> eventSource,
                                    ActorRef<ResearchCoordinator.Command> replyTo) implements Command {}
 
     public record WorkerResult(Models.SearchResults results) implements Command {}
@@ -65,6 +69,9 @@ public class SearchResultsAggregatorAgent extends AbstractBehavior<SearchResults
         this.replyTo = msg.replyTo;
         this.searchAgent = msg.searchAgent;
         this.totalOps = msg.searchRequests.size();
+
+        msg.eventSource.ifPresent(ResearchCoordinator.eventEmitter("aggregator-agent",
+                "start-aggregation", "Dispatching search tasks."));
 
         msg.searchRequests.forEach(searchRequest -> {
             searchAgent.tell(new SearchAgent.PerformSearch(

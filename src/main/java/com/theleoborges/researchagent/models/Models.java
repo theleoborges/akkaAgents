@@ -1,10 +1,17 @@
 package com.theleoborges.researchagent.models;
 
-public class Models {
+import akka.http.javadsl.model.sse.ServerSentEvent;
+import akka.stream.javadsl.SourceQueueWithComplete;
 
+public class Models {
+    public record Event(String source,
+                        String type,
+                        String description,
+                        boolean end) {}
 
     // Base search request with query and number of results to retrieve
-    public record SearchRequest(String query, int resultCount) {
+    public record SearchRequest(String query, int resultCount,
+                                java.util.Optional<SourceQueueWithComplete<ServerSentEvent>> eventSource) {
     }
 
     public record AggregateRequest(String query) {

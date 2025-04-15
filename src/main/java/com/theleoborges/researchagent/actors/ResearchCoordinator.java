@@ -4,6 +4,10 @@ import akka.actor.typed.ActorRef;
 import akka.actor.typed.Behavior;
 import akka.actor.typed.DispatcherSelector;
 import akka.actor.typed.javadsl.*;
+import akka.http.javadsl.model.sse.ServerSentEvent;
+import akka.stream.javadsl.SourceQueueWithComplete;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.theleoborges.researchagent.models.Models;
 import com.typesafe.config.Config;
 
@@ -11,11 +15,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Command> {
 
+    public interface PipelineStage {
+        public String getName();
+        public String getContext();
+        public Optional<SourceQueueWithComplete<ServerSentEvent>> getEventStream();
+    }
 
     // Command interface for the ResearchCoordinator
     public sealed interface Command {}
@@ -24,7 +34,8 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
     public record StartResearch(Models.SearchRequest request) implements Command {}
 
     // Internal message when queries have been optimised
-    record QueryOptimiserCompleted(List<Models.SearchRequest> searchRequests) implements Command {}
+    record QueryOptimiserCompleted(List<Models.SearchRequest> searchRequests,
+                                   Optional<SourceQueueWithComplete<ServerSentEvent>> eventSource) implements Command {}
 
     // Internal message when queries have been optimised
     record AggregatedResultsReceived(Models.AggregatedSearchResults results) implements Command {}
@@ -74,7 +85,7 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
         Duration reportTimeout = config.getDuration("timeouts.report-generation");
 
 
-        List<Class<? extends AbstractBehavior<?>>> agents = Arrays.asList(SearchAgent.class, ResearchAgent.class);
+
 
         // Create the child agent actors with appropriate dispatchers
         this.queryOptimiserAgent = context.spawn(
@@ -131,14 +142,31 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
                 .build();
     }
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    public static Consumer<SourceQueueWithComplete<ServerSentEvent>> eventEmitter(String sourceName, String eventName, String eventDescription) {
+        return source -> {
+            Models.Event event = new Models.Event(sourceName, eventName, eventDescription, false);
+            try {
+                source.offer(ServerSentEvent.create(objectMapper.writeValueAsString(event)));
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+        };
+    }
+
     // Entry point to the workflow
     private Behavior<Command> onStartResearch(StartResearch command) {
         this.currentRequest = command.request();
         getContext().getLog().info("Starting research for query: {}", currentRequest.query());
 
+        command.request().eventSource().ifPresent(eventEmitter(getContext().getSelf().path().name(),
+                "start-research", "Starting research for: " + currentRequest.query()));
+
 
         queryOptimiserAgent.tell(new QueryOptimiserAgent.OptimiseQuery(
                 currentRequest,
+                command.request().eventSource(),
                 getContext().getSelf().narrow()
         ));
 
@@ -147,12 +175,13 @@ public class ResearchCoordinator extends AbstractBehavior<ResearchCoordinator.Co
 
 
     private Behavior<Command> onQueryOptimiserCompleted(QueryOptimiserCompleted command) {
-        getContext().getLog().info("Starting optimiser for query: {}", currentRequest.query());
+        getContext().getLog().info("Starting search aggregator: {}", currentRequest.query());
 
         // Send command to the search agent
         aggregatorAgent.tell(new SearchResultsAggregatorAgent.StartAggregation(
                 searchAgent,
                 command.searchRequests(),
+                command.eventSource,
                 getContext().getSelf().narrow()
         ));
 

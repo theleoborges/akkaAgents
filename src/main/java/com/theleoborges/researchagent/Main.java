@@ -2,24 +2,15 @@ package com.theleoborges.researchagent;
 
 import akka.actor.typed.ActorSystem;
 import com.theleoborges.researchagent.actors.ResearchCoordinator;
-import com.theleoborges.researchagent.config.AppConfig;
-import com.theleoborges.researchagent.mcp.clients.BraveClient;
 import com.theleoborges.researchagent.mcp.servers.BraveServer;
 import com.theleoborges.researchagent.models.Models;
-import com.theleoborges.researchagent.tools.LLMService;
-import io.modelcontextprotocol.client.McpClient;
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.ServerParameters;
-import io.modelcontextprotocol.client.transport.StdioClientTransport;
 import io.modelcontextprotocol.server.transport.StdioServerTransport;
-import io.modelcontextprotocol.spec.ClientMcpTransport;
-import io.modelcontextprotocol.spec.McpSchema;
 import org.apache.commons.cli.*;
 
 
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Optional;
 
 public class Main {
     public static void main(String[] args) {
@@ -44,7 +35,7 @@ public class Main {
                     ActorSystem.create(ResearchCoordinator.create(), "ResearchAgentSystem");
 
             system.tell(new ResearchCoordinator.StartResearch(
-                    new Models.SearchRequest(topic, 5)
+                    new Models.SearchRequest(topic, 5, Optional.empty())
             ));
 
             // Terminate after a timeout
