@@ -1,5 +1,7 @@
 # ShallowResearch - A poor man's deep research (this is a POC for learning purposes)
 
+Some context on the motivation for this project and agents in general [in my newsletter](https://leonardoborges.substack.com/p/tltd-23-of-ai-agents-and-snake-oil).
+
 ## Why akka (and actors)
 
 This is a simple POC demonstrating how we can use the actor model to implement AI agents.
